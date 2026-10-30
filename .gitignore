@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches/
+!.yarn/plugins/
+!.yarn/releases/
+!.yarn/versions/
+
+# Generated build output and caches
+/.next/
+/.vinext/
+/dist/
+/out/
+/build/
+*.tsbuildinfo
+/worker-configuration.d.ts
+
+# Local runtime state: rooms, sessions, cookies and database data
+/.wrangler/
+/.vercel/
+.env*
+!.env.example
+.dev.vars*
+!.dev.vars.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Test output; keep test source files
+/coverage/
+/tests/.compiled/
+/test-results/
+/playwright-report/
+
+# Logs, temporary exports and editor files
+*.log
+*.tmp
+*.bak
+/outputs/
+/work/
+/.vscode/
+/.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Private key files
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local hosting overrides; keep sanitized hosting.json for local builds
+/.openai/*
+!/.openai/hosting.json

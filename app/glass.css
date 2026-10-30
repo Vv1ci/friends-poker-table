@@ -1,0 +1,77 @@
+/* Quiet glass surfaces; opaque card faces and strong action contrast. */
+.game-shell, .room-lobby { --panel: rgba(255,255,255,.73); --glass-border: rgba(255,255,255,.8); --ease-out: cubic-bezier(.22,.8,.24,1); }
+.game-shell { background: radial-gradient(ellipse at 10% 0%,#e7f0f7 0%,transparent 50%), radial-gradient(ellipse at 95% 100%,#e9edf6 0%,transparent 55%),#f5f6f8; }
+.topbar, .action-dock, .action-log, .lobby-card, .restart-modal, .bet-controls, .action-buttons {
+  background: var(--panel); border-color: var(--glass-border); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%);
+  box-shadow: 0 8px 28px #25354a0a, inset 0 1px 0 #ffffffb3;
+}
+.topbar { position: relative; z-index: 30; }
+.topbar .table-meta { flex-wrap: wrap; justify-content: flex-end; }
+.quiet-button, .secondary-action, .action-button, .create-room-button, .primary-action, .seat-menu button {
+  transition: transform 150ms var(--ease-out), background-color 180ms ease, box-shadow 180ms ease, opacity 150ms ease;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+button:active:not(:disabled) { transform: scale(.96); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #4294e49c; outline-offset: 3px; }
+.quiet-button { padding: 8px 11px; background: #ffffff70; border: 1px solid #ffffffa1; border-radius: 11px; color: #414b58; }
+.primary-action, .create-room-button, .raise-button { background: #2178d5; box-shadow: 0 4px 12px #2178d522; }
+.primary-action:hover, .create-room-button:hover, .raise-button:hover { background: #1268c3; }
+.fold-button, .danger-text { color: #b44443 !important; }
+.secondary-action { background: #ffffff8f; }
+.nickname-field input { background: #ffffff9c; border: 1px solid #d5dee8; color: #283342; border-radius: 13px; }
+.action-dock { min-height: 96px; border-radius: 25px; }
+.dock-turn { background: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; min-height: 112px; }
+.bet-controls, .action-buttons { border: 1px solid #ffffffdb; }
+.action-button { min-height: 44px; font-size: 13px; }
+.bet-presets button { min-height: 38px; }
+.bet-presets .preset-active { background: #dceafe; color: #176ac3; }
+.seat { transition: box-shadow 240ms ease, border-color 240ms ease, opacity 200ms ease; }
+.seat-active { box-shadow: 0 0 0 3px #459bed1f,0 10px 24px #3065a818; }
+.seat-active .avatar { box-shadow: 0 0 0 3px #4499e929; }
+.face-card { animation: cardReveal 220ms var(--ease-out) both; transform-origin: center; }
+.animated-amount { display: inline; font-variant-numeric: tabular-nums; }
+.pot-settled strong { color: #927338; }
+.pot-settled { animation: settleGlow 600ms ease-out both; }
+.seat-menu { position: absolute; right: -9px; bottom: -12px; z-index: 24; }
+.seat-menu summary { list-style: none; cursor: pointer; color: #647184; background: #ffffffec; border: 1px solid #dce3ea; border-radius: 20px; min-width: 34px; padding: 5px; font-size: 12px; text-align: center; }
+.seat-menu summary::-webkit-details-marker { display: none; }
+.seat-menu > div { position: absolute; top: 32px; right: 0; min-width: 120px; display: grid; padding: 5px; border: 1px solid #ffffffdb; border-radius: 13px; background: #f9fbfefa; box-shadow: 0 12px 36px #24364e26; animation: panelEnter 160ms var(--ease-out); }
+.seat-menu button { color: #37485a; background: transparent; border: 0; border-radius: 8px; padding: 10px; text-align: left; font-size: 12px; cursor: pointer; }
+.seat-menu button:hover { background: #e9f0f9; }
+.seat-folded > .seat-menu { opacity: 1; filter: none; }
+.modal-backdrop { animation: fadeIn 180ms ease; }
+.restart-modal { animation: panelEnter 240ms var(--ease-out); background: #f8fbf9ed; }
+.sync-status { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); padding: 6px 12px; border-radius: 20px; color: #3f617f; background: #f8fbf9ed; font-size: 11px; z-index: 90; pointer-events: none; }
+@keyframes panelEnter { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cardReveal { from { opacity: .6; filter: brightness(1.08); } to { opacity: 1; filter: brightness(1); } }
+@keyframes settleGlow { from { filter: brightness(1.15); } to { filter: brightness(1); } }
+[data-reduced-motion="true"] *, [data-reduced-motion="true"] *::before, [data-reduced-motion="true"] *::after { animation: none !important; transition: none !important; }
+[data-reduced-motion="true"] .topbar, [data-reduced-motion="true"] .action-dock, [data-reduced-motion="true"] .action-log, [data-reduced-motion="true"] .restart-modal { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: #f9fbfd; }
+/* System preference is resolved in JS; an explicit in-game choice wins. */
+@media (max-width:760px) { .topbar { gap: 12px; } .topbar .table-meta { gap: 6px; } .quiet-button { font-size: 10px; padding: 7px 8px; } .action-dock { min-height: 110px; } .action-button { min-width: 75px; padding: 11px; } .action-log { backdrop-filter: none; -webkit-backdrop-filter: none; background: #fafbfde8; } }
+
+/* Card movement is gameplay feedback, never removed by the motion preference. */
+.card-motion > .card { width: 36px; min-width: 36px; }
+.card-motion .gpt-mark { width: 20px; height: 20px; }
+.card-motion .fold-second-card { position: absolute; top: -3px; left: 8px; transform: rotate(9deg); }
+[data-reduced-motion="true"] .card-motion.motion-reduced {
+  animation: cardMotionReduced 140ms ease-out both !important;
+}
+@keyframes cardMotionReduced {
+  from { opacity: .25; transform: translate(var(--to-x), var(--to-y)); }
+  to { opacity: 1; transform: translate(var(--to-x), var(--to-y)); }
+}
+.bet-sizing-panel { width: min(100%, 660px); padding: 12px 16px; border: 1px solid #ffffffd9; border-radius: 22px; background: #fafcfde8; box-shadow: 0 6px 22px #25354a0a; }
+.bet-sizing-panel .bet-presets { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; }
+.bet-sizing-panel .bet-presets button { min-width: 0; border-radius: 12px; padding: 8px 5px; color: #42536a; border: 1px solid #dce4ec; background: #ffffffb3; }
+.bet-sizing-panel .bet-presets button[aria-pressed="true"] { background: #e2edfc; border-color: #a9c9f2; color: #1768bd; }
+.bet-slider-row { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
+.amount-slider { flex: 1; min-width: 0; width: 100%; margin: 0; min-height: 36px; accent-color: #2377cd; cursor: pointer; }
+.bet-amount { display: grid; gap: 2px; min-width: 92px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bet-amount strong { color: #246cb7; font-size: 15px; font-weight: 650; }
+.bet-amount span { color: #66768b; font-size: 11px; }
+.dock-turn { min-height: 160px; }
+.action-buttons { flex-wrap: wrap; justify-content: center; }
+@media(max-width:760px) { .bet-sizing-panel { padding: 10px; } .bet-slider-row { gap: 12px; } .bet-amount { min-width: 80px; } .action-buttons .action-button { font-size: 11px; padding: 10px 12px; } }
