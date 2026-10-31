@@ -2,8 +2,13 @@ import { formatChips, legalActions, type GameState } from "./poker";
 
 export type BetPreset = { id: string; label: string; target: number; disabled: boolean };
 export function formatBB(chips: number, bigBlind: number): string {
-  const value = chips / Math.max(1, bigBlind);
-  return `${Math.abs(value) >= 1000 ? formatChips(value) : Number(value.toFixed(2))} BB`;
+  return formatBigBlinds(chips / Math.max(1, bigBlind));
+}
+export function formatBigBlinds(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  const scale = Math.abs(rounded) >= 1_000_000 ? 1_000_000 : Math.abs(rounded) >= 1000 ? 1000 : 1;
+  const suffix = scale === 1_000_000 ? "M" : scale === 1000 ? "K" : "";
+  return `${(rounded / scale).toFixed(1)}${suffix} BB`;
 }
 export function clampRaiseTarget(game: GameState, seat: number, target: number): number {
   const legal = legalActions(game, seat);
@@ -14,7 +19,7 @@ export function betPresets(game: GameState, seat: number): BetPreset[] {
   if (!legal.canRaise) return [];
   return [2, 2.5, 3, 4].map(bb => {
     const target = Math.round(bb * game.bigBlind);
-    return { id: `bb-${bb}`, label: `${bb} BB`, target, disabled: target < legal.minTarget || target > legal.maxTarget };
+    return { id: `bb-${bb}`, label: `${bb.toFixed(1)} BB`, target, disabled: target < legal.minTarget || target > legal.maxTarget };
   });
 }
 export function defaultRaiseTarget(game: GameState, seat: number): number {

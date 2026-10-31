@@ -7,10 +7,10 @@ export function eventDuration(event: GameEvent): number {
 export function playbackDuration(event: GameEvent, reduced: boolean): number {
   return reduced ? 140 : eventDuration(event);
 }
-export function resolveMotionPreference(saved: string | null, systemReduced: boolean): boolean {
-  if (saved === "true") return true;
-  if (saved === "false") return false;
-  return systemReduced;
+// Versioned so old system-derived/off settings do not override the new animation-on default.
+export const MOTION_PREFERENCE_KEY = "poker-reduced-motion-v2";
+export function resolveMotionPreference(saved: string | null): boolean {
+  return saved === "true";
 }
 export function sequenceDuration(events: GameEvent[]): number {
   return events.length ? events.reduce((total, event) => total + eventDuration(event), 0) + 180 : 0;

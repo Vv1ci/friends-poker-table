@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createInitialGame, legalActions } from "../lib/poker";
-import { betPresets, defaultRaiseTarget, sliderRange, clampRaiseTarget, formatBB, describeTarget } from "../lib/bet-sizing";
+import { betPresets, defaultRaiseTarget, sliderRange, clampRaiseTarget, formatBB, formatBigBlinds, describeTarget } from "../lib/bet-sizing";
 import { canPresentTurn } from "../lib/presentation";
 
 function fixture() {
@@ -55,6 +55,15 @@ test("turn presentation waits for unseen events, local playback and server gate"
 test("large chip and BB readouts use compact K and M units",()=>{
   const game=fixture();
   assert.equal(describeTarget(game,1250),"62.5 BB · 1.25K 筹码");
-  assert.equal(describeTarget(game,2500000),"125K BB · 2.5M 筹码");
-  assert.equal(formatBB(20000000,20),"1M BB");
+  assert.equal(describeTarget(game,2500000),"125.0K BB · 2.5M 筹码");
+  assert.equal(formatBB(20000000,20),"1.0M BB");
+});
+
+test("BB readout keeps one decimal and carries fractional tenths into the next whole BB",()=>{
+  assert.deepEqual([25,26,27,28,29,30].map(tenths=>formatBigBlinds(tenths/10)),
+    ["2.5 BB","2.6 BB","2.7 BB","2.8 BB","2.9 BB","3.0 BB"]);
+  assert.deepEqual(betPresets(fixture(),0).map(p=>p.label),["2.0 BB","2.5 BB","3.0 BB","4.0 BB"]);
+  const game=fixture();game.players[0].chips=113;
+  assert.equal(sliderRange(game,0).at(sliderRange(game,0).last),113);
+  assert.equal(describeTarget(game,113),"5.7 BB · 113 筹码");
 });

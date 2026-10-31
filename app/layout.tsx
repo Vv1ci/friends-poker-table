@@ -53,7 +53,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: 'try{document.documentElement.dataset.pokerTheme=localStorage.getItem("friends-poker-theme")==="dark"?"dark":"light"}catch{document.documentElement.dataset.pokerTheme="light"}' }} /></head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

@@ -15,7 +15,7 @@ import {
   type GameState,
   type GameEvent,
 } from "../lib/poker";
-import { playbackDuration, resolveMotionPreference } from "../lib/motion";
+import { MOTION_PREFERENCE_KEY, playbackDuration, resolveMotionPreference } from "../lib/motion";
 import { canPresentTurn } from "../lib/presentation";
 import { BettingPanel } from "./betting-panel";
 import { CardMotion } from "./card-motion";
@@ -39,6 +39,16 @@ const HAND_OPTIONS = [
 ];
 
 type SessionInfo = { canCreate: boolean; displayName: string };
+type Theme = "light" | "dark";
+const THEME_PREFERENCE_KEY = "friends-poker-theme";
+
+function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+  return <button className="quiet-button theme-toggle" data-theme-toggle aria-label={theme === "dark" ? "切换至亮色" : "切换至暗色"} aria-pressed={theme === "dark"} onClick={onToggle}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {theme === "dark" ? <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></> : <path d="M20.4 14.3A8.6 8.6 0 0 1 9.7 3.6 8.6 8.6 0 1 0 20.4 14.3Z" />}
+    </svg><span>{theme === "dark" ? "亮色" : "暗色"}</span>
+  </button>;
+}
 
 function PlayingCard({ card, hidden = false, small = false }: { card?: Card; hidden?: boolean; small?: boolean }) {
   if (hidden || !card) return <div className={`card card-back ${small ? "mini-card" : ""}`} aria-label="GPT card back"><span className="gpt-mark" aria-hidden="true" /></div>;
@@ -117,11 +127,13 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [logExpanded, setLogExpanded] = useState(false);
   const [startingChips, setStartingChips] = useState(2000);
   const [turnSeconds, setTurnSeconds] = useState(0);
   const [maxHands, setMaxHands] = useState(0);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [theme, setTheme] = useState<Theme>("light");
   const [confirmation, setConfirmation] = useState<{type: "kick" | "transfer-host"; seat: number; name: string} | null>(null);
   const [restartOpen, setRestartOpen] = useState(false);
   const [animationQueue, setAnimationQueue] = useState<GameEvent[]>([]);
@@ -133,17 +145,57 @@ export default function Home() {
   const activeAnimation = animationQueue[0] ?? null;
 
   useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    try { setReducedMotion(resolveMotionPreference(window.localStorage.getItem("poker-reduced-motion"), media.matches)); } catch { setReducedMotion(media.matches); }
+    try {
+      setReducedMotion(resolveMotionPreference(window.localStorage.getItem(MOTION_PREFERENCE_KEY)));
+      const savedTheme = window.localStorage.getItem(THEME_PREFERENCE_KEY) === "dark" ? "dark" : "light";
+      setTheme(savedTheme); document.documentElement.dataset.pokerTheme = savedTheme;
+    } catch { setReducedMotion(false); }
+  }, []);
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      for (const menu of document.querySelectorAll<HTMLDetailsElement>(".table-options[open]")) {
+        if (event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const menu = document.querySelector<HTMLDetailsElement>(".table-options[open]");
+      if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeOnEscape); };
+  }, []);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 761px)");
+    const update = () => { if (!media.matches) setLogExpanded(false); };
+    update(); media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
   }, []);
   useEffect(() => {
     if (!confirmation && !restartOpen) return;
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) { setConfirmation(null); setRestartOpen(false); } };
-    window.addEventListener("keydown", escape);
-    return () => window.removeEventListener("keydown", escape);
+    const previous = document.activeElement;
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]') ?? []);
+    focusable()[0]?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) { setConfirmation(null); setRestartOpen(false); }
+      if (event.key !== "Tab") return;
+      const items = focusable(), first = items[0], last = items[items.length - 1];
+      if (!first) { event.preventDefault(); return; }
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => { window.removeEventListener("keydown", handleKey); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, [confirmation, restartOpen, busy]);
   const toggleMotion = () => {
-    setReducedMotion((value) => { try { window.localStorage.setItem("poker-reduced-motion", String(!value)); } catch { /* Optional preference. */ } return !value; });
+    setReducedMotion((value) => { try { window.localStorage.setItem(MOTION_PREFERENCE_KEY, String(!value)); } catch { /* Optional preference. */ } return !value; });
+  };
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme); document.documentElement.dataset.pokerTheme = nextTheme;
+    try { window.localStorage.setItem(THEME_PREFERENCE_KEY, nextTheme); } catch { /* Optional preference. */ }
   };
 
   const game = room?.game;
@@ -422,17 +474,18 @@ export default function Home() {
       setError("只有房主可以复制这个房间的邀请链接");
       return;
     }
-    await navigator.clipboard.writeText(`${window.location.origin}/?room=${room.code}&invite=${encodeURIComponent(room.inviteToken)}`);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/?room=${room.code}&invite=${encodeURIComponent(room.inviteToken)}`);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch { setError("邀请链接未复制成功，请允许浏览器使用剪贴板后重试"); }
   };
 
   if (!room || !game || !hero) {
     return (
-      <main className="room-lobby" data-reduced-motion={reducedMotion}>
-        <header className="lobby-brand"><strong>德州扑克</strong></header>
+      <main className="room-lobby" data-reduced-motion={reducedMotion} data-theme={theme}>
+        <header className="lobby-brand"><strong>德州扑克</strong><ThemeToggle theme={theme} onToggle={toggleTheme} /></header>
         <section className="lobby-card" aria-label="创建或加入德州扑克房间">
-          <p className="eyebrow">ONLINE PRIVATE TABLE</p>
           <h1>和朋友开一桌</h1>
           <p className="lobby-lead">六人好友桌，无需登录即可创建。朋友通过邀请链接入座，空位由策略机器人补齐。</p>
           {session?.canCreate ? (
@@ -484,7 +537,7 @@ export default function Home() {
   const handLabel = room.settings.maxHands > 0 ? `${game.handNumber || 0} / ${room.settings.maxHands}` : `${game.handNumber || "—"}`;
 
   return (
-    <main className="game-shell" data-reduced-motion={reducedMotion}>
+    <main className="game-shell" data-reduced-motion={reducedMotion} data-theme={theme}>
       <header className="topbar">
         <div className="brand"><h1>德州扑克</h1></div>
         <div className="table-meta">
@@ -492,10 +545,17 @@ export default function Home() {
           <span className="dot">•</span><span>{room.settings.turnSeconds > 0 ? `${room.settings.turnSeconds}s` : "不限时"}</span>
           <span className="room-code">房间 {room.code}</span>
           <span className="human-count">{room.humanCount}/6 真人</span>
-          {room.isHost && <button className="quiet-button" onClick={() => void copyInvite()}>{copied ? "已复制" : "复制邀请"}</button>}
-          {room.isHost && <button className="quiet-button" onClick={openRestart}>重新开始</button>}
-          <button className="quiet-button" onClick={toggleMotion} aria-pressed={reducedMotion}>{reducedMotion ? "减少动画：开" : "减少动画：关"}</button>
-          <button className="quiet-button" onClick={leaveRoom}>离开</button>
+          {room.isHost && <button className="quiet-button invite-button" onClick={() => void copyInvite()} data-copied={copied} aria-live="polite">{copied ? "邀请已复制" : "复制邀请"}</button>}
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          <details className="table-options">
+            <summary className="quiet-button" aria-label="牌桌设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 3h6l.7 3 2.8 1.6 3 .1v6l-2.3 2-1.6 2.8-.1 2.5h-6l-2-2.3L6.7 17l-3-.1v-6l2.3-2 1.6-2.8L9 3Z" transform="translate(0 -1) scale(.94)" /><circle cx="12" cy="12" r="3" /></svg><span>设置</span></summary>
+            <div className="options-menu">
+              <p className="options-title">牌桌设置</p>
+              <button className="motion-toggle" onClick={toggleMotion} aria-label={reducedMotion ? "开启动画效果" : "减少动画效果"} aria-pressed={!reducedMotion}><span>动画效果</span><span className="option-value">{reducedMotion ? "已减少" : "已开启"}<i className="switch-track" aria-hidden="true" /></span></button>
+              {room.isHost && <button onClick={(event) => { const menu = event.currentTarget.closest("details"); menu?.removeAttribute("open"); menu?.querySelector("summary")?.focus(); openRestart(); }} disabled={busy}>重新开始</button>}
+              <button className="danger-text" onClick={leaveRoom}>离开牌桌</button>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -553,12 +613,12 @@ export default function Home() {
             <div><strong>{hero.name}</strong><span><AnimatedAmount value={hero.chips} reduced={reducedMotion} /> 筹码</span></div>
             {positionLabels(game, heroSeat).length > 0 && <div className="position-tags hero-position-tags">{positionLabels(game, heroSeat).map((label) => <span className={`position-tag position-${label.toLowerCase()}`} key={label}>{label}</span>)}</div>}
           </div>
-          <div className={`hero-decision ${heroTurn ? "decision-active" : ""}`}>{decisionText(hero, heroSeat, game, heroTurn, heroTurn ? secondsRemaining : null)}</div>
+          {!heroTurn && <div className="hero-decision">{decisionText(hero, heroSeat, game, false, null)}</div>}
         </div>
 
-        <aside className="action-log" aria-label="本轮牌局动态" style={{ transform: `translate(${logPosition.x}px, ${logPosition.y}px)` }}>
-          <button className="action-log-handle" onPointerDown={beginLogDrag} onPointerMove={moveLog} onPointerUp={endLogDrag} onPointerCancel={endLogDrag}><span>本轮动态</span><small>拖动</small></button>
-          <div className="action-log-list">{game.log.slice().reverse().map((entry, index) => <p key={`${entry}-${index}`}>{entry}</p>)}</div>
+        <aside className={`action-log ${logExpanded ? "log-expanded" : ""}`} aria-label="本轮牌局动态" style={{ transform: `translate(${logPosition.x}px, ${logPosition.y}px)` }}>
+          <div className="action-log-header"><button className="action-log-handle" aria-label="拖动本轮动态面板" onPointerDown={beginLogDrag} onPointerMove={moveLog} onPointerUp={endLogDrag} onPointerCancel={endLogDrag}><span>本轮动态</span><small>可拖动</small></button><button className="log-toggle" aria-expanded={logExpanded} aria-controls="action-log-content" aria-label={logExpanded ? "收起本轮动态" : "展开本轮动态"} onClick={() => setLogExpanded(value => !value)}><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button></div>
+          <div className="action-log-content" id="action-log-content" aria-hidden={!logExpanded}><div className="action-log-list">{game.log.slice().reverse().map((entry, index) => <p key={`${entry}-${index}`}>{entry}</p>)}</div></div>
         </aside>
       </section>
 
@@ -576,8 +636,7 @@ export default function Home() {
           </>
         ) : heroTurn ? (
           <>
-            {secondsRemaining !== null && <div className="turn-countdown">行动剩余 <strong>{secondsRemaining}s</strong></div>}
-            <BettingPanel key={`${game.handNumber}-${game.turnToken}`} game={game} seat={heroSeat} busy={busy} onAction={(action) => void sendCommand({type: "action", action})} />
+            <BettingPanel key={`${game.handNumber}-${game.turnToken}`} game={game} seat={heroSeat} busy={busy} reducedMotion={reducedMotion} secondsRemaining={secondsRemaining} onAction={(action) => void sendCommand({type: "action", action})} />
           </>
         ) : (
           <>
@@ -590,9 +649,8 @@ export default function Home() {
       {error && <div className="table-error" role="alert">{error}</div>}
       {confirmation && room.isHost && <div className="modal-backdrop" onClick={(event) => { if(event.target === event.currentTarget && !busy) setConfirmation(null); }}><section className="restart-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><h2 id="confirm-title">{confirmation.type === "kick" ? "移出玩家" : "转让房主"}</h2><p>{confirmation.type === "kick" ? `将 ${confirmation.name} 移出牌桌，空位由机器人接替。` : `将房主权限交给 ${confirmation.name}，你仍保留座位。`}旧邀请链接会失效。</p><div className="modal-actions"><button className="secondary-action" autoFocus onClick={() => setConfirmation(null)} disabled={busy}>取消</button><button className="primary-action" onClick={async () => { if(await sendCommand({type: confirmation.type, seat: confirmation.seat})) setConfirmation(null); }} disabled={busy}>{busy ? "正在同步…" : "确认"}</button></div></section></div>}
       {restartOpen && room.isHost && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setRestartOpen(false); }}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setRestartOpen(false); }}>
           <section className="restart-modal" role="dialog" aria-modal="true" aria-labelledby="restart-title">
-            <p className="eyebrow">HOST CONTROL</p>
             <h2 id="restart-title">重新开始游戏</h2>
             <p>保留房间和已入座玩家，清空当前筹码、手数与本轮动态。</p>
             <div className="room-settings restart-settings">

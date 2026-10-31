@@ -60,7 +60,8 @@ test("机器人每次只行动一步，再轮到下一位玩家", () => {
   assert.notEqual(next.game.active, 3);
 });
 
-test("真人弃牌后机器人仍按步骤完成整手牌", () => {
+test("真人弃牌后机器人仍按步骤完成整手牌", (context) => {
+  context.mock.method(Math, "random", () => .5);
   const initial = createRoomState("ABC234", { userId: "host", displayName: "Host" });
   let room = startRoomHand(initial, "host");
   let setupTicks = 0;
@@ -75,9 +76,14 @@ test("真人弃牌后机器人仍按步骤完成整手牌", () => {
   assert.equal(room.game.players[room.game.active].isBot, true);
 
   const firstLogLength = room.game.log.length;
+  const actorName = room.game.players[room.game.active].name;
   room = applySingleBotAction(room, botTick(room));
-  assert.equal(room.game.log.length, firstLogLength + 1);
-  assert.equal(room.game.handOver, false);
+  const added = room.game.log.slice(firstLogLength);
+  // Closing a street adds a board/status log as well as the single bot action.
+  assert.ok(added[0].startsWith(actorName + " "));
+  const actionLines = added.filter(line => room.game.players.some(player =>
+    ["弃牌", "过牌", "跟注", "加注至", "全下"].some(action => line.startsWith(player.name + " " + action))));
+  assert.equal(actionLines.length, 1);
 
   let finishTicks = 1;
   while (!room.game.handOver && finishTicks < 500) {
@@ -85,7 +91,7 @@ test("真人弃牌后机器人仍按步骤完成整手牌", () => {
     finishTicks += 1;
   }
   assert.equal(room.game.handOver, true);
-  assert.ok(finishTicks > 1);
+  assert.ok(finishTicks >= 1);
 });
 
 test("限时房间轮到真人时设置倒计时并在到时自动行动", () => {

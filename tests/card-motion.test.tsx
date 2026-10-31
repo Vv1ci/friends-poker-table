@@ -4,11 +4,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CardMotion } from "../app/card-motion";
 import { playbackDuration, resolveMotionPreference } from "../lib/motion";
 
-test("explicit animation on survives a system reduced-motion preference", () => {
-  assert.equal(resolveMotionPreference("false", true), false);
-  assert.equal(resolveMotionPreference("true", false), true);
-  assert.equal(resolveMotionPreference(null, true), true);
-  assert.equal(resolveMotionPreference(null, false), false);
+test("animations default on; an explicit reduce-motion choice is preserved", () => {
+  assert.equal(resolveMotionPreference(null), false);
+  assert.equal(resolveMotionPreference("false"), false);
+  assert.equal(resolveMotionPreference("true"), true);
+  assert.equal(resolveMotionPreference("invalid"), false);
 });
 
 for (const reduced of [false, true]) {
