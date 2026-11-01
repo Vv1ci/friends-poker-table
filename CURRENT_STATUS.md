@@ -80,7 +80,7 @@
 - Sites 项目：`appgprj_6a85784ca09881919aceff056a6994e5`；公开访问范围不变，数据库绑定 `DB` 不变。
 - Sites 源码提交：`51b82374970971d2cd6f550d8dcfa1bf7845a829`。
 - 保存版本：**21**，ID `appgprj_6a85784ca09881919aceff056a6994e5~appgver_0de33aa659ec819184158897bbe8cc1f`。
-- 发布包：`D:\Codex\friends-poker-table-release\outputs\poker-release.tar.gz`，2,672,640 字节、83 个文件；SHA-256 `cc6a3875f96ca0b438908f538382fc913b5704669e16df35abbe1c793f524555`。
+- 本地 gzip 发布包：`D:\Codex\friends-poker-table-release\outputs\poker-release.tar.gz`，1,705,260 字节。Sites 保存后的 tar 归档元数据为 2,672,640 字节、83 个文件，平台返回 SHA-256 `cc6a3875f96ca0b438908f538382fc913b5704669e16df35abbe1c793f524555`；平台元数据与本地压缩包大小分别记录。
 - 部署 ID：`appgdep_6ae74d4c9a348191974fc053c700daed`。部署调用连接中断后，通过保存版本取回已有部署 ID，再查询状态，未重复发起部署。
 - 部署结果：`succeeded`，服务器更新时间 `2026-11-01T14:32:05.440625+00:00`（北京时间 2026-11-01 22:32:05）。
 - 原网址：`https://friends-poker-table-zh.wffyffqff.chatgpt.site`；已请求在本任务旁打开，应用返回 queued。
