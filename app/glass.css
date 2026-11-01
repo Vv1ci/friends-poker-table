@@ -91,6 +91,10 @@ button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visi
 .room-settings select option{background:var(--panel-solid);color:var(--ink)}
 .settings-note,.lobby-note,.session-note{color:var(--muted);font-size:12px;line-height:1.75}
 .settings-note{margin:12px 0 22px}.lobby-note{margin:22px 0 0}
+.disconnect-setting{margin:12px 0;text-align:left}
+.disconnect-setting label{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px;border:1px solid var(--line);background:var(--control-bg);border-radius:12px;color:var(--ink);font-size:13px}
+.disconnect-setting select{max-width:100%;min-height:34px;font:inherit;color:var(--ink);background:var(--panel-solid);border:1px solid var(--control-border);border-radius:8px;padding:5px 8px}
+.disconnect-setting p{margin:8px 2px 0;color:var(--muted);font-size:12px;line-height:1.7}
 .room-error{font-size:13px;color:var(--danger)}
 .create-room-button{font-size:14px;min-height:48px;border-radius:12px;font-weight:600}
 .table-stage{background:transparent;min-height:555px}

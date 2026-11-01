@@ -10,6 +10,7 @@ export type RoomSettings = {
   startingChips: number;
   turnSeconds: number;
   maxHands: number;
+  noDisconnect: boolean;
 };
 
 export type RoomState = {
@@ -20,6 +21,7 @@ export type RoomState = {
   settings: RoomSettings;
   turnDeadline: number | null;
   actionReadyAt: number | null;
+  presenceGraceStartedAt?: number;
   game: GameState;
 };
 
@@ -37,6 +39,7 @@ export type RoomView = {
 };
 
 export type RoomCommand =
+  | { type: "leave" }
   | { type: "join"; guestName?: string; inviteToken?: string }
   | { type: "start"; version: number; guestName?: string }
   | { type: "restart"; version: number; settings: RoomSettings; guestName?: string }

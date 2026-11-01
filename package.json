@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "node node_modules/typescript/bin/tsc lib/poker.ts lib/room-types.ts lib/room-core.ts tests/poker-engine.test.ts tests/room-core.test.ts tests/session-core.test.ts tests/card-motion.test.tsx tests/bet-sizing.test.ts tests/betting-panel.test.tsx --outDir tests/.compiled --module commonjs --moduleResolution node --target es2022 --jsx react-jsx --esModuleInterop --skipLibCheck --types node && node --test tests/.compiled/tests/*.test.js",
+    "test": "node node_modules/typescript/bin/tsc lib/poker.ts lib/room-types.ts lib/room-core.ts tests/poker-engine.test.ts tests/room-core.test.ts tests/session-core.test.ts tests/card-motion.test.tsx tests/bet-sizing.test.ts tests/betting-panel.test.tsx tests/room-mode.test.tsx --outDir tests/.compiled --module commonjs --moduleResolution node --target es2022 --jsx react-jsx --esModuleInterop --skipLibCheck --types node && node --test tests/.compiled/tests/*.test.js",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

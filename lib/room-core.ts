@@ -17,6 +17,7 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   startingChips: 2000,
   turnSeconds: 0,
   maxHands: 0,
+  noDisconnect: false,
 };
 
 export function createRoomInviteToken(): string {
@@ -34,7 +35,9 @@ export function normalizeRoomSettings(settings?: Partial<RoomSettings>): RoomSet
   const turnSeconds = [0, 15, 30, 60].includes(requestedTurnSeconds) ? requestedTurnSeconds : DEFAULT_ROOM_SETTINGS.turnSeconds;
   const requestedMaxHands = Number(settings?.maxHands);
   const maxHands = [0, 10, 25, 50].includes(requestedMaxHands) ? requestedMaxHands : DEFAULT_ROOM_SETTINGS.maxHands;
-  return { startingChips, turnSeconds, maxHands };
+  // Timed tables always retain their existing timeout/disconnect rules.
+  const noDisconnect = turnSeconds === 0 && settings?.noDisconnect === true;
+  return { startingChips, turnSeconds, maxHands, noDisconnect };
 }
 
 function animationDelay(state: RoomState, game: GameState): number {
@@ -113,7 +116,7 @@ export function joinHumanSeat(state: RoomState, user: RoomUser): { state: RoomSt
     isBot: false,
   };
 
-  return { state: { ...state, seats, game: { ...state.game, players } }, seat };
+  return { state: { ...state, seats, hostUserId: state.hostUserId || user.userId, game: { ...state.game, players } }, seat };
 }
 
 const BOT_SEAT_IDENTITIES = [
@@ -124,6 +127,38 @@ const BOT_SEAT_IDENTITIES = [
   { name: "阿澈", avatar: "澈" },
   { name: "Nova", avatar: "N" },
 ];
+
+export const RECONNECT_GRACE_MS = 30_000;
+
+// Removal changes control of a seat, never its cards, bets, stack or turn.
+export function releaseHumanSeats(state: RoomState, userIds: string[], reason: "leave" | "disconnect"): RoomState {
+  const removed = new Set(userIds);
+  const indices = state.seats.flatMap((id, index) => id && removed.has(id) ? [index] : []);
+  if (!indices.length) return state;
+  const seats = state.seats.map((id) => id && removed.has(id) ? null : id);
+  const players = state.game.players.map((player, index) => indices.includes(index)
+    ? { ...player, ...BOT_SEAT_IDENTITIES[index], isBot: true }
+    : player);
+  const hostLeft = removed.has(state.hostUserId);
+  const hostUserId = hostLeft ? seats.find((id) => id !== null) ?? "" : state.hostUserId;
+  const messages = indices.map((index) => `${state.game.players[index].name} ${reason === "leave" ? "已离开" : "断线超过 30 秒"}，电脑接管座位`);
+  if (hostLeft) messages.push(hostUserId
+    ? `${players[seats.indexOf(hostUserId)].name} 成为房主`
+    : "已无真人在线，等待持邀请链接的玩家加入");
+  return {
+    ...state, seats, hostUserId,
+    // Keep an empty room's invitation usable; a new host otherwise receives a fresh one.
+    inviteToken: hostLeft && hostUserId ? createRoomInviteToken() : state.inviteToken,
+    turnDeadline: indices.includes(state.game.active) ? null : state.turnDeadline,
+    game: { ...state.game, players, log: [...state.game.log, ...messages] },
+  };
+}
+
+export function expireDisconnectedSeats(state: RoomState, lastSeen: ReadonlyMap<string, number>, now: number): RoomState {
+  if (normalizeRoomSettings(state.settings).noDisconnect) return state;
+  return releaseHumanSeats(state, state.seats.filter((id): id is string =>
+    id !== null && now - Math.max(lastSeen.get(id) ?? now, state.presenceGraceStartedAt ?? 0) >= RECONNECT_GRACE_MS), "disconnect");
+}
 
 export function kickHumanSeat(state: RoomState, userId: string, seat: number): RoomState {
   if (state.hostUserId !== userId) throw new Error("HOST_ONLY");
@@ -179,7 +214,7 @@ export function revealRoomHole(state: RoomState, seat: number, now = Date.now())
   return withGame(state, revealPlayerHole(state.game, seat), now);
 }
 
-export function restartRoomGame(state: RoomState, userId: string, requestedSettings?: Partial<RoomSettings>): RoomState {
+export function restartRoomGame(state: RoomState, userId: string, requestedSettings?: Partial<RoomSettings>, now = Date.now()): RoomState {
   if (state.hostUserId !== userId) throw new Error("HOST_ONLY");
   const settings = normalizeRoomSettings(requestedSettings);
   const fresh = createInitialGame(settings.startingChips);
@@ -196,7 +231,7 @@ export function restartRoomGame(state: RoomState, userId: string, requestedSetti
   });
   fresh.message = "房主已重新设置牌局";
   fresh.log = ["牌局已重新开始，等待房主发牌"];
-  return { ...state, settings, turnDeadline: null, actionReadyAt: null, game: fresh };
+  return { ...state, settings, presenceGraceStartedAt: now, turnDeadline: null, actionReadyAt: null, game: fresh };
 }
 
 export function applyRoomTimeout(state: RoomState, now = Date.now()): RoomState {

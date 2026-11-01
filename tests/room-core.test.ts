@@ -1,11 +1,79 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyRoomAction, applyRoomTimeout, applySingleBotAction, createRoomState, hasValidRoomInvite, joinHumanSeat, kickHumanSeat, restartRoomGame, revealRoomBoard, revealRoomHole, roomViewFor, startRoomHand } from "../lib/room-core";
+import { applyRoomAction, applyRoomTimeout, applySingleBotAction, createRoomState, expireDisconnectedSeats, hasValidRoomInvite, joinHumanSeat, kickHumanSeat, normalizeRoomSettings, releaseHumanSeats, RECONNECT_GRACE_MS, restartRoomGame, revealRoomBoard, revealRoomHole, roomViewFor, startRoomHand } from "../lib/room-core";
 import { applyAction } from "../lib/poker";
 
 function botTick<T extends { actionReadyAt: number | null }>(room: T): number {
   return (room.actionReadyAt ?? Date.now()) + 1;
 }
+
+test("主动退出保留座位的筹码、底牌、下注及行动进度，原玩家失去操作和底牌访问", () => {
+  let room = joinHumanSeat(createRoomState("ABC234", { userId: "host", displayName: "Host" }), { userId: "friend", displayName: "Friend" }).state;
+  room = startRoomHand(room, "host", 1000);
+  room = { ...room, game: { ...room.game, active: 1 }, turnDeadline: 99999 };
+  const before = room.game.players[1];
+  const left = releaseHumanSeats(room, ["friend"], "leave");
+  assert.equal(left.seats[1], null);
+  assert.equal(left.game.players[1].isBot, true);
+  assert.equal(left.turnDeadline, null);
+  for (const key of ["chips", "bet", "contributed", "hole", "folded", "allIn"] as const) {
+    assert.deepEqual(left.game.players[1][key], before[key]);
+  }
+  assert.equal(left.game.active, room.game.active);
+  assert.equal(left.game.turnToken, room.game.turnToken);
+  assert.equal(left.actionReadyAt, room.actionReadyAt);
+  assert.deepEqual(left.game.community, room.game.community);
+  assert.deepEqual(left.game.deck, room.game.deck);
+  assert.throws(() => roomViewFor(left, "friend", 4), /NOT_SEATED/);
+  assert.throws(() => applyRoomAction(left, 1, { type: "call" }, botTick(left)), /NOT_YOUR_TURN/);
+  assert.doesNotThrow(() => applySingleBotAction(left, botTick(left)));
+  assert.equal(releaseHumanSeats(left, ["friend"], "leave"), left);
+});
+
+test("非当前玩家退出不会重置当前真人的行动时限或发牌门限", () => {
+  const room = joinHumanSeat(createRoomState("ABC234", { userId: "host", displayName: "Host" }), { userId: "friend", displayName: "Friend" }).state;
+  const active = { ...room, turnDeadline: 90000, actionReadyAt: 80000, game: { ...room.game, active: 0 } };
+  const left = releaseHumanSeats(active, ["friend"], "leave");
+  assert.equal(left.turnDeadline, 90000);
+  assert.equal(left.actionReadyAt, 80000);
+});
+
+test("30秒宽限期内保留原位，重连心跳延长期限，超时才由电脑接管", () => {
+  const room = joinHumanSeat(createRoomState("ABC234", { userId: "host", displayName: "Host" }), { userId: "friend", displayName: "Friend" }).state;
+  const beats = new Map([["host", 40000], ["friend", 10000]]);
+  assert.equal(expireDisconnectedSeats(room, beats, 10000 + RECONNECT_GRACE_MS - 1), room);
+  const refreshed = new Map(beats).set("friend", 39999);
+  assert.equal(expireDisconnectedSeats(room, refreshed, 40000), room);
+  const expired = expireDisconnectedSeats(room, beats, 40000);
+  assert.equal(expired.seats[1], null);
+  assert.equal(expired.hostUserId, "host");
+  assert.equal(expired.game.players[1].isBot, true);
+});
+
+test("房主离开或超时按座位顺序转给未超时真人，不把权限交给同批超时者", () => {
+  let room = createRoomState("ABC234", { userId: "host", displayName: "Host" });
+  for (const id of ["stale", "online"]) room = joinHumanSeat(room, { userId: id, displayName: id }).state;
+  const expired = expireDisconnectedSeats(room, new Map([["host", 1000], ["stale", 1000], ["online", 31000]]), 31000);
+  assert.equal(expired.hostUserId, "online");
+  assert.equal(roomViewFor(expired, "online", 4).isHost, true);
+  assert.notEqual(expired.inviteToken, room.inviteToken);
+  assert.equal(roomViewFor(expired, "online", 4).humanCount, 1);
+  const left = releaseHumanSeats(room, ["host"], "leave");
+  assert.equal(left.hostUserId, "stale");
+  assert.equal(roomViewFor(left, "online", 4).isHost, false);
+});
+
+test("最后一人离开后无人拥有房主权限，持有效邀请入座者成为新房主", () => {
+  const room = createRoomState("ABC234", { userId: "host", displayName: "Host" });
+  const empty = releaseHumanSeats(room, ["host"], "leave");
+  assert.equal(empty.hostUserId, "");
+  assert.equal(empty.seats.every((id) => id === null), true);
+  assert.equal(empty.game.players.every((player) => player.isBot), true);
+  assert.equal(hasValidRoomInvite(empty, room.inviteToken), true);
+  assert.throws(() => startRoomHand(empty, "host"), /HOST_ONLY/);
+  const joined = joinHumanSeat(empty, { userId: "next", displayName: "Next" }).state;
+  assert.equal(joined.hostUserId, "next");
+});
 
 test("创建房间时房主入座且其余座位由机器人补齐", () => {
   const room = createRoomState("ABC234", { userId: "host", displayName: "Host" });
@@ -34,7 +102,7 @@ test("房间使用专属邀请凭证且只有房主视图可以读取", () => {
 
 test("创建房间时保存起始筹码、行动限时和总手数", () => {
   const room = createRoomState("ABC234", { userId: "host", displayName: "Host" }, { startingChips: 100_000, turnSeconds: 30, maxHands: 25 });
-  assert.deepEqual(room.settings, { startingChips: 100_000, turnSeconds: 30, maxHands: 25 });
+  assert.deepEqual(room.settings, { startingChips: 100_000, turnSeconds: 30, maxHands: 25, noDisconnect: false });
   assert.equal(room.game.players.every((player) => player.chips === 100_000), true);
   assert.equal(room.game.smallBlind, 500);
   assert.equal(room.game.bigBlind, 1000);
@@ -181,7 +249,7 @@ test("房主重新开始时保留座位并应用新设置", () => {
   assert.equal(restarted.game.players[1].isBot, false);
   assert.equal(restarted.game.players.every((player) => player.chips === 10_000), true);
   assert.equal(restarted.game.handNumber, 0);
-  assert.deepEqual(restarted.settings, { startingChips: 10_000, turnSeconds: 30, maxHands: 25 });
+  assert.deepEqual(restarted.settings, { startingChips: 10_000, turnSeconds: 30, maxHands: 25, noDisconnect: false });
 });
 
 test("缩短动画后服务器仍在发牌结束前阻止行动", () => {
@@ -191,4 +259,62 @@ test("缩短动画后服务器仍在发牌结束前阻止行动", () => {
   assert.equal(started.actionReadyAt, 10000 + 12 * 320 + 180);
   assert.throws(() => applyRoomAction(started, started.game.active, { type: "call" }, started.actionReadyAt! - 1), /ACTION_NOT_READY/);
   assert.doesNotThrow(() => applyRoomAction(started, started.game.active, { type: "call" }, started.actionReadyAt!));
+});
+
+test("旧房间默认保持30秒接管，限时房间不能通过不掉线设置绕过规则", () => {
+  assert.equal(normalizeRoomSettings().noDisconnect, false);
+  assert.equal(normalizeRoomSettings({ turnSeconds: 0 }).noDisconnect, false);
+  assert.equal(normalizeRoomSettings({ turnSeconds: 0, noDisconnect: true }).noDisconnect, true);
+  for (const turnSeconds of [15, 30, 60]) {
+    assert.equal(normalizeRoomSettings({ turnSeconds, noDisconnect: true }).noDisconnect, false);
+  }
+});
+
+test("不掉线房间长期离线不更换座位、房主或邀请，也不自动操作真人", () => {
+  let room = createRoomState("ABC234", { userId: "host", displayName: "Host" }, { noDisconnect: true });
+  for (let i = 1; i < 6; i++) room = joinHumanSeat(room, { userId: `p${i}`, displayName: `P${i}` }).state;
+  room = startRoomHand(room, "host", 1000);
+  const future = 1000 + 90 * 24 * 60 * 60 * 1000;
+  const after = expireDisconnectedSeats(room, new Map(room.seats.map((id) => [id!, 1000])), future);
+  assert.equal(after, room);
+  assert.equal(after.turnDeadline, null);
+  assert.equal(roomViewFor(after, "host", 1).isHost, true);
+  assert.equal(roomViewFor(after, "p3", 1).settings.noDisconnect, true);
+  assert.throws(() => applySingleBotAction(after, future), /BOT_TICK_NOT_READY/);
+  assert.throws(() => applyRoomTimeout(after, future), /TIMEOUT_NOT_READY/);
+  assert.throws(() => applyRoomAction(after, 0, { type: "fold" }, future), /NOT_YOUR_TURN/);
+  const resumed = joinHumanSeat(after, { userId: "p3", displayName: "P3" });
+  assert.equal(resumed.seat, 3);
+  assert.deepEqual(resumed.state.game.players[3], room.game.players[3]);
+  assert.doesNotThrow(() => applyRoomAction(resumed.state, 3, { type: "call" }, future));
+});
+
+test("不掉线模式仍允许主动退出和房主踢人，退出房主交接权限并保留牌局", () => {
+  let room = createRoomState("ABC234", { userId: "host", displayName: "Host" }, { noDisconnect: true });
+  room = joinHumanSeat(room, { userId: "friend", displayName: "Friend" }).state;
+  const kicked = kickHumanSeat(room, "host", 1);
+  assert.equal(kicked.seats[1], null);
+  assert.equal(kicked.game.players[1].isBot, true);
+  const started = startRoomHand(room, "host", 1000);
+  const left = releaseHumanSeats(started, ["host"], "leave");
+  assert.equal(left.hostUserId, "friend");
+  assert.equal(left.seats[0], null);
+  assert.equal(left.game.players[0].isBot, true);
+  assert.deepEqual(left.game.players[0].hole, started.game.players[0].hole);
+  assert.equal(left.game.players[0].chips, started.game.players[0].chips);
+  assert.equal(left.game.active, started.game.active);
+  assert.notEqual(left.inviteToken, started.inviteToken);
+});
+
+test("只有房主可重开切换模式，恢复普通模式后所有座位获得新30秒宽限期", () => {
+  let room = createRoomState("ABC234", { userId: "host", displayName: "Host" }, { noDisconnect: true });
+  room = joinHumanSeat(room, { userId: "friend", displayName: "Friend" }).state;
+  assert.throws(() => restartRoomGame(room, "friend", { noDisconnect: false }), /HOST_ONLY/);
+  const restarted = restartRoomGame(room, "host", { noDisconnect: false }, 90000);
+  assert.equal(restarted.settings.noDisconnect, false);
+  assert.deepEqual(restarted.seats, room.seats);
+  const beats = new Map([["host", 1000], ["friend", 1000]]);
+  assert.equal(expireDisconnectedSeats(restarted, beats, 119999), restarted);
+  assert.equal(expireDisconnectedSeats(restarted, beats, 120000).seats.every((id) => id === null), true);
+  assert.equal(restartRoomGame(restarted, "host", { noDisconnect: true }).settings.noDisconnect, true);
 });

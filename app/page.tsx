@@ -20,6 +20,7 @@ import { canPresentTurn } from "../lib/presentation";
 import { BettingPanel } from "./betting-panel";
 import { CardMotion } from "./card-motion";
 import { AnimatedAmount } from "./animated-amount";
+import { DisconnectSetting } from "./disconnect-setting";
 import type { RoomSettings, RoomView } from "../lib/room-types";
 
 const SEAT_CLASSES = ["", "seat-left-bottom", "seat-left-top", "seat-top", "seat-right-top", "seat-right-bottom"];
@@ -130,6 +131,7 @@ export default function Home() {
   const [logExpanded, setLogExpanded] = useState(false);
   const [startingChips, setStartingChips] = useState(2000);
   const [turnSeconds, setTurnSeconds] = useState(0);
+  const [noDisconnect, setNoDisconnect] = useState(false);
   const [maxHands, setMaxHands] = useState(0);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -142,6 +144,7 @@ export default function Home() {
   const [logPosition, setLogPosition] = useState({ x: 0, y: 0 });
   const eventTracker = useRef<{ handNumber: number; eventCounter: number } | null>(null);
   const logDrag = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number } | null>(null);
+  const leavingRoom = useRef(false);
   const activeAnimation = animationQueue[0] ?? null;
 
   useEffect(() => {
@@ -219,6 +222,7 @@ export default function Home() {
 
 
   const joinRoom = useCallback(async (rawCode: string, inviteToken: string) => {
+    leavingRoom.current = false;
     const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
     if (code.length !== 6) {
       setError("请输入 6 位房间码");
@@ -278,11 +282,22 @@ export default function Home() {
     const code = roomCode;
     let cancelled = false;
     const sync = async () => {
+      if (leavingRoom.current) return;
       try {
           const response = await fetch(`/api/rooms/${code}`, { cache: "no-store" });
+        if (response.status === 403) {
+          const payload = await response.json() as { code?: string; error?: string };
+          if (!cancelled && !leavingRoom.current && payload.code === "NOT_SEATED") {
+            setRoom(null);
+            setAnimationQueue([]);
+            setError(payload.error ?? "座位已由电脑接管，请重新加入");
+            window.history.replaceState(null, "", "/");
+          }
+          return;
+        }
         const nextRoom = await readRoomResponse(response);
-        if (!cancelled) {
-          setRoom((current) => !current || nextRoom.version > current.version ? nextRoom : current);
+        if (!cancelled && !leavingRoom.current) {
+          setRoom((current) => current?.code === code && nextRoom.version > current.version ? nextRoom : current);
           setError("");
         }
       } catch (caught) {
@@ -349,7 +364,7 @@ export default function Home() {
           body: JSON.stringify({ type: "tick", version }),
         });
         const nextRoom = await readRoomResponse(response);
-        if (!cancelled) setRoom((current) => !current || nextRoom.version > current.version ? nextRoom : current);
+        if (!cancelled && !leavingRoom.current) setRoom((current) => current?.code === code && nextRoom.version > current.version ? nextRoom : current);
       } catch {
         // A request can arrive just before the server-side animation gate, or lose a race to another client.
         // Keep retrying this version until polling or a successful tick advances the room.
@@ -378,7 +393,7 @@ export default function Home() {
           body: JSON.stringify({ type: "timeout", version: roomVersion }),
         });
         const nextRoom = await readRoomResponse(response);
-        if (!cancelled) setRoom((current) => !current || nextRoom.version > current.version ? nextRoom : current);
+        if (!cancelled && !leavingRoom.current) setRoom((current) => current?.code === roomCode && nextRoom.version > current.version ? nextRoom : current);
       } catch {
         // Connected clients race on the same deadline; stale timeout requests are harmless.
       }
@@ -388,10 +403,11 @@ export default function Home() {
 
   const createRoom = async () => {
     if (!session?.canCreate) return;
+    leavingRoom.current = false;
     setBusy(true);
     setError("");
     try {
-      const settings: RoomSettings = { startingChips, turnSeconds, maxHands };
+      const settings: RoomSettings = { startingChips, turnSeconds, maxHands, noDisconnect: turnSeconds === 0 && noDisconnect };
       const response = await fetch("/api/rooms", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -425,7 +441,7 @@ export default function Home() {
         body: JSON.stringify({ ...command, version: room.version }),
       });
       const nextRoom = await readRoomResponse(response);
-      setRoom((current) => !current || nextRoom.version >= current.version ? nextRoom : current);
+      if (!leavingRoom.current) setRoom((current) => current?.code === nextRoom.code && nextRoom.version >= current.version ? nextRoom : current);
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作没有成功，请重试");
@@ -439,12 +455,13 @@ export default function Home() {
     if (!room?.isHost) return;
     setStartingChips(room.settings.startingChips);
     setTurnSeconds(room.settings.turnSeconds);
+    setNoDisconnect(room.settings.noDisconnect ?? false);
     setMaxHands(room.settings.maxHands);
     setRestartOpen(true);
   };
 
   const restartGame = async () => {
-    if (await sendCommand({ type: "restart", settings: { startingChips, turnSeconds, maxHands } })) setRestartOpen(false);
+    if (await sendCommand({ type: "restart", settings: { startingChips, turnSeconds, maxHands, noDisconnect: turnSeconds === 0 && noDisconnect } })) setRestartOpen(false);
   };
 
   const beginLogDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -463,10 +480,32 @@ export default function Home() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const leaveRoom = () => {
-    setRoom(null);
+  const leaveRoom = async () => {
+    if (!room || leavingRoom.current) return;
+    leavingRoom.current = true;
+    setBusy(true);
     setError("");
-    window.history.replaceState(null, "", "/");
+    try {
+      const response = await fetch(`/api/rooms/${room.code}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "leave" }),
+      });
+      if (!response.ok) {
+        const payload = await response.json() as { error?: string };
+        throw new Error(payload.error || "退出失败，请重试");
+      }
+      setRoom(null);
+      setAnimationQueue([]);
+      setInvitation(null);
+      setRestartOpen(false);
+      setConfirmation(null);
+      window.history.replaceState(null, "", "/");
+    } catch (caught) {
+      leavingRoom.current = false;
+      setError(caught instanceof Error ? caught.message : "退出失败，请重试");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const copyInvite = async () => {
@@ -512,6 +551,7 @@ export default function Home() {
                   </select>
                 </label>
               </div>
+              <DisconnectSetting turnSeconds={turnSeconds} enabled={noDisconnect} onChange={setNoDisconnect} disabled={busy} />
               <p className="settings-note">盲注自动设为 {formatChips(lobbyBlinds.smallBlind)} / {formatChips(lobbyBlinds.bigBlind)}，限时结束时无须跟注则自动 Check，否则自动 Fold。</p>
               <button className="create-room-button" onClick={() => void createRoom()} disabled={busy}>{busy ? "正在连接…" : "创建新房间"}</button>
             </>
@@ -542,7 +582,7 @@ export default function Home() {
         <div className="brand"><h1>德州扑克</h1></div>
         <div className="table-meta">
           <span>无限注</span><span className="dot">•</span><span>{formatChips(game.smallBlind)} / {formatChips(game.bigBlind)}</span>
-          <span className="dot">•</span><span>{room.settings.turnSeconds > 0 ? `${room.settings.turnSeconds}s` : "不限时"}</span>
+          <span className="dot">•</span><span>{room.settings.turnSeconds > 0 ? `${room.settings.turnSeconds}s` : room.settings.noDisconnect ? "不限时 · 不掉线模式" : "不限时"}</span>
           <span className="room-code">房间 {room.code}</span>
           <span className="human-count">{room.humanCount}/6 真人</span>
           {room.isHost && <button className="quiet-button invite-button" onClick={() => void copyInvite()} data-copied={copied} aria-live="polite">{copied ? "邀请已复制" : "复制邀请"}</button>}
@@ -553,7 +593,7 @@ export default function Home() {
               <p className="options-title">牌桌设置</p>
               <button className="motion-toggle" onClick={toggleMotion} aria-label={reducedMotion ? "开启动画效果" : "减少动画效果"} aria-pressed={!reducedMotion}><span>动画效果</span><span className="option-value">{reducedMotion ? "已减少" : "已开启"}<i className="switch-track" aria-hidden="true" /></span></button>
               {room.isHost && <button onClick={(event) => { const menu = event.currentTarget.closest("details"); menu?.removeAttribute("open"); menu?.querySelector("summary")?.focus(); openRestart(); }} disabled={busy}>重新开始</button>}
-              <button className="danger-text" onClick={leaveRoom}>离开牌桌</button>
+              <button className="danger-text" onClick={leaveRoom} disabled={busy}>离开牌桌</button>
             </div>
           </details>
         </div>
@@ -658,6 +698,7 @@ export default function Home() {
               <label><span>行动时间</span><select value={turnSeconds} onChange={(event) => setTurnSeconds(Number(event.target.value))}>{TURN_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
               <label><span>牌局手数</span><select value={maxHands} onChange={(event) => setMaxHands(Number(event.target.value))}>{HAND_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
             </div>
+            <DisconnectSetting turnSeconds={turnSeconds} enabled={noDisconnect} onChange={setNoDisconnect} disabled={busy} />
             <div className="modal-actions"><button className="secondary-action" onClick={() => setRestartOpen(false)} disabled={busy}>取消</button><button className="primary-action" onClick={() => void restartGame()} disabled={busy}>{busy ? "正在重置…" : "确认重新开始"}</button></div>
           </section>
         </div>

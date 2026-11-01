@@ -1,12 +1,12 @@
 import { assertSameOrigin } from "../../../../lib/session-core";
 import { transferRoomHost, applyRoomAction, applyRoomTimeout, applySingleBotAction, findUserSeat, hasValidRoomInvite, joinHumanSeat, kickHumanSeat, restartRoomGame, revealRoomBoard, revealRoomHole, roomViewFor, startRoomHand } from "../../../../lib/room-core";
-import { loadPersistedRoom, normalizeRoomCode, requestRoomUser, savePersistedRoom } from "../../../../lib/room-store";
+import { leavePersistedRoom, syncPersistedRoom, touchRoomPresence, normalizeRoomCode, requestRoomUser, savePersistedRoom } from "../../../../lib/room-store";
 import type { PlayerAction } from "../../../../lib/poker";
 import type { RoomSettings } from "../../../../lib/room-types";
 
 type RouteContext = { params: Promise<{ code: string }> };
 type CommandPayload = {
-  type?: "transfer-host" | "join" | "start" | "restart" | "reveal-board" | "show-hole" | "kick" | "tick" | "timeout" | "action";
+  type?: "leave" | "transfer-host" | "join" | "start" | "restart" | "reveal-board" | "show-hole" | "kick" | "tick" | "timeout" | "action";
   version?: number;
   action?: PlayerAction;
   guestName?: string;
@@ -25,7 +25,7 @@ function errorResponse(message: string) {
   if (message === "KICK_DURING_HAND") return Response.json({ error: "请在本手牌结束后再移出玩家" }, { status: 409 });
   if (message === "PLAYER_NOT_KICKABLE") return Response.json({ error: "这个座位当前不能被移出" }, { status: 409 });
   if (message === "ROOM_FULL") return Response.json({ error: "房间已经坐满 6 位真人玩家" }, { status: 409 });
-  if (message === "NOT_SEATED") return Response.json({ error: "你还没有加入这个房间" }, { status: 403 });
+  if (message === "NOT_SEATED") return Response.json({ code: "NOT_SEATED", error: "你已离开牌桌或断线超时，座位已由电脑接管，请使用邀请链接重新加入" }, { status: 403 });
   if (message === "NOT_YOUR_TURN") return Response.json({ error: "当前还没有轮到你行动" }, { status: 409 });
   if (message === "ACTION_NOT_READY") return Response.json({ error: "请等待发牌动画结束后再行动" }, { status: 409 });
   if (message === "BOT_TICK_NOT_READY") return Response.json({ error: "机器人行动已经更新" }, { status: 409 });
@@ -46,8 +46,7 @@ export async function GET(request: Request, context: RouteContext) {
     const { code: rawCode } = await context.params;
     const code = normalizeRoomCode(rawCode);
     const user = await requestRoomUser(request);
-    const room = await loadPersistedRoom(code);
-    if (!room) throw new Error("ROOM_NOT_FOUND");
+    const room = await syncPersistedRoom(code, user.userId);
     return Response.json({ room: roomViewFor(room.state, user.userId, room.version) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "ROOM_LOAD_FAILED");
@@ -61,14 +60,18 @@ export async function POST(request: Request, context: RouteContext) {
     const code = normalizeRoomCode(rawCode);
     const payload = (await request.json()) as CommandPayload;
     const user = await requestRoomUser(request, payload);
-    const room = await loadPersistedRoom(code);
-    if (!room) throw new Error("ROOM_NOT_FOUND");
+    if (payload.type === "leave") {
+      await leavePersistedRoom(code, user.userId);
+      return Response.json({ left: true });
+    }
+    const room = await syncPersistedRoom(code, user.userId);
 
     if (payload.type === "join") {
       if (findUserSeat(room.state, user.userId) < 0 && !hasValidRoomInvite(room.state, payload.inviteToken)) throw new Error("INVITE_REQUIRED");
       const joined = joinHumanSeat(room.state, user);
       const changed = joined.state !== room.state;
       const version = changed ? await savePersistedRoom(code, joined.state, room.version) : room.version;
+      await touchRoomPresence(code, user.userId, Date.now(), true);
       return Response.json({ room: roomViewFor(joined.state, user.userId, version) });
     }
 
