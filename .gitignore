@@ -58,3 +58,6 @@ Desktop.ini
 # Local hosting overrides; keep sanitized hosting.json for local builds
 /.openai/*
 !/.openai/hosting.json
+
+# Private local notes and deployment records; never publish
+/.local/
